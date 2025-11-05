@@ -1,5 +1,5 @@
 import speech from '@google-cloud/speech';
-import { putTranscription } from '../storage/storage.js';
+import { putTranscription } from '../db/database.js';
 
 // Initialize Google Speech-to-Text client
 let speechClient = null;

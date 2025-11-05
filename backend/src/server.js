@@ -5,7 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { registerRepo, connectUser } from './routes/repos.js';
 import { setupWebSocket } from './websocket/audioHandler.js';
-import { connectDatabase, closeDatabase } from './db/database.js';
+import { connectDatabase } from './db/database.js';
 
 dotenv.config();
 
@@ -40,19 +40,12 @@ wss.on('listening', () => {
 });
 
 // Connect to database and start server
-const dbConnectionString = process.env.DATABASE_URL;
-if (!dbConnectionString) {
-  console.error('DATABASE_URL environment variable is required');
-  process.exit(1);
-}
+const dbConnectionString = `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.POSTGRES_DB}`;
 
 // Initialize database connection and start server
 (async () => {
   try {
     await connectDatabase(dbConnectionString);
-    
-    // Initialize storage
-    initStorage();
 
     // Start server
     server.listen(PORT, () => {
@@ -64,23 +57,4 @@ if (!dbConnectionString) {
     process.exit(1);
   }
 })();
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\nShutting down gracefully...');
-  await closeDatabase();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\nShutting down gracefully...');
-  await closeDatabase();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
 
