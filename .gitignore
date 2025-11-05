@@ -1,0 +1,21 @@
+node_modules/
+*.log
+.env
+data/
+*.vsix
+.vscode-test/
+out/
+dist/
+.DS_Store
+
+# Backend
+backend/node_modules/
+backend/data/
+backend/.env
+
+# Extension
+extension/node_modules/
+extension/out/
+extension/.vscode-test/
+
+backend/hiya-coordinate-stt.json
