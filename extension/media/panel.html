@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta http-equiv="Content-Security-Policy" content="{{cspContent}}">
+
+    <title>Hiya Coordinator</title>
+    <link rel="stylesheet" href="{{cssUri}}">
+</head>
+<body>
+    <div class="container">
+        <div class="section">
+            <h2>Repository Connection</h2>
+            <div>
+                <label>Repository URL:</label>
+                <input type="text" id="repoUrl" placeholder="https://github.com/user/repo" style="width: 100%;">
+            </div>
+            <div>
+                <label>Your Name:</label>
+                <input type="text" id="userName" placeholder="Your name" style="width: 100%;">
+            </div>
+            <div>
+                <label>Branch:</label>
+                <input type="text" id="branch" placeholder="main" value="main" style="width: 100%;">
+            </div>
+            <button id="connectBtn">Connect</button>
+            <div id="connectionStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>Speech Recognition</h2>
+            <button id="speechBtn" disabled>Start Speech Recognition</button>
+            <div id="speechStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>Conversation</h2>
+            <div id="transcriptionArea" class="transcription-area"></div>
+        </div>
+    </div>
+
+    <script nonce="{{nonce}}" src="{{jsUri}}"></script>
+</body>
+</html>
+

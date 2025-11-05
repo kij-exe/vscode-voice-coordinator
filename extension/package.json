@@ -1,0 +1,71 @@
+{
+  "name": "hiya-coordinator",
+  "displayName": "Hiya Coordinator",
+  "description": "Real-time collaborative development through voice conversations",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "hiyaCoordinator",
+          "name": "Hiya Coordinator",
+          "when": "true"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "hiyaCoordinator.connect",
+        "title": "Connect to Repository"
+      },
+      {
+        "command": "hiyaCoordinator.toggleSpeech",
+        "title": "Toggle Speech Recognition"
+      }
+    ],
+    "configuration": {
+      "title": "Hiya Coordinator",
+      "properties": {
+        "hiyaCoordinator.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Backend server URL"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.0",
+    "@types/vscode": "^1.80.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "mic": "^2.1.2",
+    "ws": "^8.14.2"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false,
+    "mediaDeviceAccess": {
+        "microphone": true 
+    }
+  }
+}
