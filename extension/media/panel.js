@@ -89,10 +89,16 @@ async function generateCode() {
         return;
     }
 
-    showStatus('codeGenStatus', 'Generating code...', '');
+    showStatus('codeGenStatus', '', '');
     const button = document.getElementById('generateCodeBtn');
+    const loadingAnimation = document.getElementById('loadingAnimation');
+    
     if (button) {
         button.disabled = true;
+    }
+    
+    if (loadingAnimation) {
+        loadingAnimation.style.display = 'flex';
     }
 
     // Send message to extension which will handle websocket communication
@@ -166,16 +172,35 @@ window.addEventListener('message', event => {
             showStatus('speechStatus', 'Error: ' + message.message, 'error');
             break;
         case 'codeGenStarted':
-            showStatus('codeGenStatus', 'Code generation started...', '');
+            showStatus('codeGenStatus', '', '');
+            const loadingAnimation = document.getElementById('loadingAnimation');
+            if (loadingAnimation) {
+                loadingAnimation.style.display = 'flex';
+            }
             break;
         case 'codeGenComplete':
-            showStatus('codeGenStatus', 'Code generation complete. Check backend console for results.', 'connected');
+            // Keep loading animation, wait for patchesSaved message
+            break;
+        case 'patchesSaved':
+            const loadingAnimationSaved = document.getElementById('loadingAnimation');
+            if (loadingAnimationSaved) {
+                loadingAnimationSaved.style.display = 'none';
+            }
+            if (message.count > 0) {
+                showStatus('codeGenStatus', `Code generation complete. ${message.count} patch file(s) saved to patches/ directory.`, 'connected');
+            } else {
+                showStatus('codeGenStatus', 'Code generation complete, but no patches were saved.', 'connected');
+            }
             if (document.getElementById('generateCodeBtn')) {
                 document.getElementById('generateCodeBtn').disabled = false;
             }
             break;
         case 'codeGenError':
             showStatus('codeGenStatus', 'Error: ' + message.message, 'error');
+            const loadingAnimationError = document.getElementById('loadingAnimation');
+            if (loadingAnimationError) {
+                loadingAnimationError.style.display = 'none';
+            }
             if (document.getElementById('generateCodeBtn')) {
                 document.getElementById('generateCodeBtn').disabled = false;
             }

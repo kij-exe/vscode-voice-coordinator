@@ -202,13 +202,36 @@ export class CoordinatorPanel {
                     `Saved ${savedFiles.length} patch file(s) to patches/ directory`
                 );
                 console.log(`Saved patches: ${savedFiles.join(', ')}`);
+                
+                // Notify webview that patches were saved
+                if (this._panel) {
+                    this._panel.webview.postMessage({
+                        type: 'patchesSaved',
+                        count: savedFiles.length
+                    });
+                }
             } else {
                 vscode.window.showWarningMessage('No patch files to save');
+                // Notify webview that no patches were saved
+                if (this._panel) {
+                    this._panel.webview.postMessage({
+                        type: 'patchesSaved',
+                        count: 0
+                    });
+                }
             }
         } catch (error: any) {
             const errorMessage = error.message || 'Failed to save patches';
             vscode.window.showErrorMessage(`Error saving patches: ${errorMessage}`);
             console.error('Error saving patches:', error);
+            
+            // Notify webview of error
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'codeGenError',
+                    message: errorMessage
+                });
+            }
         }
     }
 
@@ -238,11 +261,8 @@ export class CoordinatorPanel {
                 branch: connectionInfo.branch
             }, this.wsUrl);
 
-            if (this._panel) {
-                this._panel.webview.postMessage({
-                    type: 'codeGenComplete'
-                });
-            }
+            // Don't send codeGenComplete here - wait for patches to be saved
+            // The patchesSaved message will be sent from savePatches()
         } catch (error: any) {
             const errorMessage = error.message || 'Failed to generate code';
             if (this._panel) {
