@@ -202,7 +202,7 @@ export function setupWebSocket(wss) {
                 const summaryText = result.summary.length > 500 
                   ? result.summary.substring(0, 500) + '...' 
                   : result.summary;
-                const speechText = `Code generation complete. ${summaryText}`;
+                const speechText = summaryText;
                 
                 audioBuffer = await synthesizeSpeech(speechText);
                 console.log(`Generated audio from summary (${audioBuffer.length} bytes)`);

@@ -242,7 +242,7 @@ Your task:
 
 CRITICAL: You MUST output your final response in valid JSON format with this exact structure:
 {
-  "summary": "A brief summary of the changes made",
+  "summary": "A brief summary of the changes made, e.g., 'I added ..' ",
   "files": [
     {
       "filename": "path/to/file.js",
