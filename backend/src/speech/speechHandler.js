@@ -62,8 +62,10 @@ export function createRecognitionStream(config, connectionInfo, onTranscription)
         const isFinal = result.isFinal;
 
         // Print to console
-        console.log(`[${isFinal ? 'FINAL' : 'INTERIM'}] Transcription: ${transcript}`);
-
+        if (isFinal) {
+          console.log("[FINAL] Transcription: ", transcript);
+        }
+        
         // Call callback if provided
         if (onTranscription) {
           onTranscription(transcript, isFinal, null);

@@ -148,6 +148,29 @@ export class AudioRecorder {
         return this.isRecording;
     }
 
+    /**
+     * Ensure WebSocket is connected. If not connected, connects using the stored connection info.
+     */
+    async ensureConnected(wsUrl: string): Promise<void> {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            await this.connectWebSocket(wsUrl);
+        }
+    }
+
+    /**
+     * Send a message through the WebSocket connection
+     * @param message - The message object to send
+     * @param wsUrl - WebSocket URL (used if connection needs to be established)
+     */
+    async sendMessage(message: any, wsUrl: string): Promise<void> {
+        await this.ensureConnected(wsUrl);
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message));
+        } else {
+            throw new Error('WebSocket is not connected');
+        }
+    }
+
     disconnect(): void {
         this.stopRecording();
         if (this.ws) {

@@ -1,19 +1,57 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { readFile } from 'fs/promises';
+import { readFile, readdir, rm } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { simpleGit } from 'simple-git';
 import OpenAI from 'openai';
 
-const execAsync = promisify(exec);
-
-// Initialize OpenAI client (will be null if API key not set)
+// Lazy initialization of OpenAI client (initialized when first needed)
 let openaiClient = null;
-if (process.env.OPENAI_API_KEY) {
-  openaiClient = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
+
+/**
+ * Get or initialize the OpenAI client
+ * @returns {OpenAI} The OpenAI client instance
+ */
+function getOpenAIClient() {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY environment variable.');
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+  return openaiClient;
+}
+
+/**
+ * Recursively get all files in a directory
+ * @param {string} dir - Directory path
+ * @param {string} baseDir - Base directory for relative paths
+ * @returns {Promise<Array<string>>} Array of file paths relative to baseDir
+ */
+async function getAllFiles(dir, baseDir = dir) {
+  const files = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    const relativePath = fullPath.replace(baseDir + '/', '');
+
+    // Skip .git directory and other hidden files
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      const subFiles = await getAllFiles(fullPath, baseDir);
+      files.push(...subFiles);
+    } else if (entry.isFile()) {
+      files.push(relativePath);
+    }
+  }
+
+  return files;
 }
 
 /**
@@ -23,36 +61,45 @@ if (process.env.OPENAI_API_KEY) {
  * @returns {Promise<Array<string>>} Array of file paths
  */
 async function listRepoFiles(repoUrl, branch) {
+  let tempDir = null;
+  let repoPath = null;
+
   try {
     // Create a temporary directory for cloning
-    const tempDir = join(tmpdir(), `repo-${Date.now()}`);
-    const repoPath = join(tempDir, 'repo');
+    tempDir = join(tmpdir(), `repo-${Date.now()}`);
+    repoPath = join(tempDir, 'repo');
 
     console.log(`Cloning repository ${repoUrl} to ${tempDir}...`);
     
-    // Clone the repository
-    await execAsync(`git clone --depth 1 --branch ${branch} ${repoUrl} ${repoPath}`, {
-      timeout: 60000
-    });
+    // Clone the repository using simple-git
+    const git = simpleGit();
+    await git.clone(repoUrl, repoPath, ['--depth', '1', '--branch', branch]);
 
-    // Get list of all files
-    const { stdout } = await execAsync(`find ${repoPath} -type f -not -path '*/\.*'`, {
-      cwd: tempDir
-    });
+    // Get list of all files recursively
+    const files = await getAllFiles(repoPath, repoPath);
 
-    // Clean up paths to be relative to repo root
-    const files = stdout
-      .split('\n')
-      .filter(line => line.trim())
-      .map(file => file.replace(repoPath + '/', ''))
-      .filter(file => !file.includes('.git'));
-
-    // Clean up temp directory
-    await execAsync(`rm -rf ${tempDir}`);
+    // Clean up temp directory using Node.js fs
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+      console.warn('Warning: Failed to clean up temp directory:', cleanupError.message);
+    }
 
     return files;
   } catch (error) {
     console.error('Error listing repo files:', error);
+    
+    // Clean up on error
+    if (tempDir && existsSync(tempDir)) {
+      try {
+        await rm(tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+        console.warn('Warning: Failed to clean up temp directory:', cleanupError.message);
+      }
+    }
+    
     throw new Error(`Failed to list files: ${error.message}`);
   }
 }
@@ -65,33 +112,57 @@ async function listRepoFiles(repoUrl, branch) {
  * @returns {Promise<string>} File content
  */
 async function getFileContent(repoUrl, branch, filePath) {
+  let tempDir = null;
+  let repoPath = null;
+
   try {
     // Create a temporary directory for cloning
-    const tempDir = join(tmpdir(), `repo-${Date.now()}`);
-    const repoPath = join(tempDir, 'repo');
+    tempDir = join(tmpdir(), `repo-${Date.now()}`);
+    repoPath = join(tempDir, 'repo');
 
     console.log(`Cloning repository ${repoUrl} to ${tempDir}...`);
     
-    // Clone the repository
-    await execAsync(`git clone --depth 1 --branch ${branch} ${repoUrl} ${repoPath}`, {
-      timeout: 60000
-    });
+    // Clone the repository using simple-git
+    const git = simpleGit();
+    await git.clone(repoUrl, repoPath, ['--depth', '1', '--branch', branch]);
 
     const fullPath = join(repoPath, filePath);
     
     if (!existsSync(fullPath)) {
-      await execAsync(`rm -rf ${tempDir}`);
+      // Clean up temp directory
+      try {
+        await rm(tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+        console.warn('Warning: Failed to clean up temp directory:', cleanupError.message);
+      }
       throw new Error(`File not found: ${filePath}`);
     }
 
     const content = await readFile(fullPath, 'utf-8');
 
-    // Clean up temp directory
-    await execAsync(`rm -rf ${tempDir}`);
+    // Clean up temp directory using Node.js fs
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+      console.warn('Warning: Failed to clean up temp directory:', cleanupError.message);
+    }
 
     return content;
   } catch (error) {
     console.error('Error getting file content:', error);
+    
+    // Clean up on error
+    if (tempDir && existsSync(tempDir)) {
+      try {
+        await rm(tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+        console.warn('Warning: Failed to clean up temp directory:', cleanupError.message);
+      }
+    }
+    
     throw new Error(`Failed to get file content: ${error.message}`);
   }
 }
@@ -104,9 +175,8 @@ async function getFileContent(repoUrl, branch, filePath) {
  * @returns {Promise<Object>} Generated code with summary and file changes
  */
 export async function generateCodeFromConversation(repoUrl, branch, conversations) {
-  if (!openaiClient) {
-    throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY environment variable.');
-  }
+  // Initialize OpenAI client lazily (after dotenv.config() has been called)
+  const client = getOpenAIClient();
 
   try {
     // Format conversations into a readable string
@@ -201,7 +271,7 @@ Important:
     let iteration = 0;
 
     while (iteration < maxIterations) {
-      const response = await openaiClient.chat.completions.create({
+      const response = await client.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
         messages: messages,
         tools: tools,
@@ -212,6 +282,9 @@ Important:
 
       const message = response.choices[0].message;
       messages.push(message);
+      
+      console.log("Message received");
+      console.log(message);
 
       // If the agent wants to use tools, execute them
       if (message.tool_calls && message.tool_calls.length > 0) {

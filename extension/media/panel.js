@@ -56,6 +56,7 @@ async function connect() {
         isConnected = true;
         showStatus('connectionStatus', 'Connected successfully!', 'connected');
         document.getElementById('speechBtn').disabled = false;
+        document.getElementById('generateCodeBtn').disabled = false;
         
         // Notify extension about connection
         vscode.postMessage({ 
@@ -80,6 +81,25 @@ async function toggleSpeech() {
         // Request extension to start recording
         vscode.postMessage({ command: 'startRecording' });
     }
+}
+
+async function generateCode() {
+    if (!isConnected || !connectionInfo) {
+        showStatus('codeGenStatus', 'Not connected to repository', 'error');
+        return;
+    }
+
+    showStatus('codeGenStatus', 'Generating code...', '');
+    const button = document.getElementById('generateCodeBtn');
+    if (button) {
+        button.disabled = true;
+    }
+
+    // Send message to extension which will handle websocket communication
+    vscode.postMessage({ 
+        command: 'generateCode',
+        connectionInfo: connectionInfo
+    });
 }
 
 function showStatus(elementId, message, type = '') {
@@ -116,6 +136,7 @@ window.addEventListener('message', event => {
             isConnected = true;
             showStatus('connectionStatus', 'Connected successfully!', 'connected');
             document.getElementById('speechBtn').disabled = false;
+            document.getElementById('generateCodeBtn').disabled = false;
             break;
         case 'error':
             showStatus('connectionStatus', message.message, 'error');
@@ -144,6 +165,21 @@ window.addEventListener('message', event => {
             document.getElementById('speechBtn').textContent = 'Start Speech Recognition';
             showStatus('speechStatus', 'Error: ' + message.message, 'error');
             break;
+        case 'codeGenStarted':
+            showStatus('codeGenStatus', 'Code generation started...', '');
+            break;
+        case 'codeGenComplete':
+            showStatus('codeGenStatus', 'Code generation complete. Check backend console for results.', 'connected');
+            if (document.getElementById('generateCodeBtn')) {
+                document.getElementById('generateCodeBtn').disabled = false;
+            }
+            break;
+        case 'codeGenError':
+            showStatus('codeGenStatus', 'Error: ' + message.message, 'error');
+            if (document.getElementById('generateCodeBtn')) {
+                document.getElementById('generateCodeBtn').disabled = false;
+            }
+            break;
         case 'disconnected':
             isConnected = false;
             connectionInfo = null;
@@ -155,6 +191,7 @@ window.addEventListener('message', event => {
             }
             showStatus('connectionStatus', message.message || 'Disconnected', 'error');
             document.getElementById('speechBtn').disabled = true;
+            document.getElementById('generateCodeBtn').disabled = true;
             break;
     }
 });
@@ -162,6 +199,7 @@ window.addEventListener('message', event => {
 document.addEventListener('DOMContentLoaded', function() {
     const connectButton = document.getElementById('connectBtn');
     const speechButton = document.getElementById('speechBtn');
+    const generateCodeButton = document.getElementById('generateCodeBtn');
 
     if (connectButton) {
         connectButton.addEventListener('click', connect);
@@ -169,6 +207,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (speechButton) {
         speechButton.addEventListener('click', toggleSpeech);
+    }
+
+    if (generateCodeButton) {
+        generateCodeButton.addEventListener('click', generateCode);
     }
 });
 

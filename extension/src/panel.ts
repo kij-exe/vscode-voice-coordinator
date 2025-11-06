@@ -94,6 +94,9 @@ export class CoordinatorPanel {
                     case 'stopRecording':
                         this.handleStopRecording();
                         break;
+                    case 'generateCode':
+                        await this.handleGenerateCode(message.connectionInfo);
+                        break;
                 }
             },
             null,
@@ -151,6 +154,48 @@ export class CoordinatorPanel {
             this._panel.webview.postMessage({
                 type: 'recordingStopped'
             });
+        }
+    }
+
+    private async handleGenerateCode(connectionInfo: any) {
+        if (!connectionInfo) {
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'codeGenError',
+                    message: 'No connection info available'
+                });
+            }
+            return;
+        }
+
+        if (this._panel) {
+            this._panel.webview.postMessage({
+                type: 'codeGenStarted'
+            });
+        }
+
+        try {
+            // Use the existing AudioRecorder websocket connection
+            await this.audioRecorder.sendMessage({
+                type: 'generate_code',
+                repoId: connectionInfo.repoId,
+                userName: connectionInfo.userName,
+                branch: connectionInfo.branch
+            }, this.wsUrl);
+
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'codeGenComplete'
+                });
+            }
+        } catch (error: any) {
+            const errorMessage = error.message || 'Failed to generate code';
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'codeGenError',
+                    message: errorMessage
+                });
+            }
         }
     }
 
