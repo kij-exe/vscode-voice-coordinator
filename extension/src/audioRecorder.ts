@@ -8,6 +8,7 @@ export class AudioRecorder {
     private isRecording: boolean = false;
     private connectionInfo: any = null;
     private transcriptionCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
+    private codeGenerationCallback: ((result: any) => void) | null = null;
 
     constructor() {}
 
@@ -139,6 +140,9 @@ export class AudioRecorder {
                     } else if (message.type === 'code_generation_result') {
                         console.log('\n=== Code Generation Result from Server ===');
                         console.log(JSON.stringify(message.result, null, 2));
+                        if (this.codeGenerationCallback) {
+                            this.codeGenerationCallback(message.result);
+                        }
                     } else if (message.type === 'code_generation_error') {
                         console.error('\n=== Code Generation Error ===');
                         console.error(message.error);
@@ -192,25 +196,10 @@ export class AudioRecorder {
 
     setTranscriptionCallback(callback: (transcript: string, isFinal: boolean) => void): void {
         this.transcriptionCallback = callback;
-        // If WebSocket already exists, update its message handler
-        if (this.ws) {
-            this.ws.on('message', (data: WebSocket.Data) => {
-                try {
-                    const message = JSON.parse(data.toString());
-                    if (message.type === 'transcription' && this.transcriptionCallback) {
-                        this.transcriptionCallback(message.transcript, message.isFinal);
-                    } else if (message.type === 'code_generation_result') {
-                        console.log('\n=== Code Generation Result from Server ===');
-                        console.log(JSON.stringify(message.result, null, 2));
-                    } else if (message.type === 'code_generation_error') {
-                        console.error('\n=== Code Generation Error ===');
-                        console.error(message.error);
-                    }
-                } catch (e) {
-                    // Binary data or non-JSON, ignore
-                }
-            });
-        }
+    }
+
+    setCodeGenerationCallback(callback: (result: any) => void): void {
+        this.codeGenerationCallback = callback;
     }
 }
 

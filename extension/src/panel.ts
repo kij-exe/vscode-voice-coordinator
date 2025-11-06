@@ -40,6 +40,11 @@ export class CoordinatorPanel {
             }
             vscode.window.showWarningMessage('Connection to backend server lost. Please reconnect.');
         });
+
+        // Set up code generation callback
+        this.audioRecorder.setCodeGenerationCallback(async (result: any) => {
+            await this.savePatches(result);
+        });
     }
 
     public async show() {
@@ -154,6 +159,56 @@ export class CoordinatorPanel {
             this._panel.webview.postMessage({
                 type: 'recordingStopped'
             });
+        }
+    }
+
+    /**
+     * Save patches to the workspace patches directory
+     */
+    private async savePatches(result: any) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('No workspace folder open. Please open a workspace first.');
+            return;
+        }
+
+        const patchesDir = path.join(workspaceFolder.uri.fsPath, 'patches');
+
+        try {
+            // Create patches directory if it doesn't exist
+            if (!fs.existsSync(patchesDir)) {
+                fs.mkdirSync(patchesDir, { recursive: true });
+            }
+
+            // Save each patch file
+            const savedFiles: string[] = [];
+            for (const file of result.files || []) {
+                if (!file.filename || !file.patch) {
+                    continue;
+                }
+
+                // Replace / with _ in filename
+                const safeFilename = file.filename.replace(/\//g, '_');
+                const patchFilename = `${safeFilename}.patch`;
+                const patchPath = path.join(patchesDir, patchFilename);
+
+                // Write patch file
+                fs.writeFileSync(patchPath, file.patch, 'utf-8');
+                savedFiles.push(patchFilename);
+            }
+
+            if (savedFiles.length > 0) {
+                vscode.window.showInformationMessage(
+                    `Saved ${savedFiles.length} patch file(s) to patches/ directory`
+                );
+                console.log(`Saved patches: ${savedFiles.join(', ')}`);
+            } else {
+                vscode.window.showWarningMessage('No patch files to save');
+            }
+        } catch (error: any) {
+            const errorMessage = error.message || 'Failed to save patches';
+            vscode.window.showErrorMessage(`Error saving patches: ${errorMessage}`);
+            console.error('Error saving patches:', error);
         }
     }
 

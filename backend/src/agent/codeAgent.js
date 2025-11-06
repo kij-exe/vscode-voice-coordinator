@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { simpleGit } from 'simple-git';
+import { createPatch } from 'diff';
 import OpenAI from 'openai';
 
 // Lazy initialization of OpenAI client (initialized when first needed)
@@ -337,6 +338,46 @@ Important:
           if (!result.summary || !Array.isArray(result.files)) {
             throw new Error('Invalid response format: missing summary or files array');
           }
+
+          // Convert file contents to patch files
+          const filesWithPatches = await Promise.all(
+            result.files.map(async (file) => {
+              try {
+                // Get original file content from repository
+                let originalContent = '';
+                try {
+                  originalContent = await getFileContent(repoUrl, branch, file.filename);
+                } catch (error) {
+                  // File doesn't exist (new file), use empty string
+                  originalContent = '';
+                }
+
+                // Generate unified diff patch
+                const patch = createPatch(
+                  file.filename,
+                  originalContent,
+                  file.new_content,
+                  `Original ${file.filename}`,
+                  `Modified ${file.filename}`
+                );
+
+                return {
+                  filename: file.filename,
+                  patch: patch
+                };
+              } catch (error) {
+                console.error(`Error generating patch for ${file.filename}:`, error);
+                // Fallback: return original content if patch generation fails
+                return {
+                  filename: file.filename,
+                  patch: `Error generating patch: ${error.message}\n\nOriginal content:\n${file.new_content}`
+                };
+              }
+            })
+          );
+
+          // Replace files array with patches
+          result.files = filesWithPatches;
 
           console.log('\n=== Code Generation Complete ===');
           console.log(JSON.stringify(result, null, 2));
