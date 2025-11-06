@@ -172,12 +172,22 @@ export function setupWebSocket(wss) {
               conversations
             );
 
-            // Output to console (not sending back to client)
+            // Output to console
             console.log('\n=== Code Generation Result ===');
             console.log(JSON.stringify(result, null, 2));
+
+            // Send result to client via websocket
+            ws.send(JSON.stringify({
+              type: 'code_generation_result',
+              result: result
+            }));
           } catch (error) {
             console.error('Error generating code:', error);
-            // Don't send error to client, just log it
+            // Send error to client
+            ws.send(JSON.stringify({
+              type: 'code_generation_error',
+              error: error.message
+            }));
           }
           break;
 

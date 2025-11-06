@@ -283,9 +283,6 @@ Important:
       const message = response.choices[0].message;
       messages.push(message);
       
-      console.log("Message received");
-      console.log(message);
-
       // If the agent wants to use tools, execute them
       if (message.tool_calls && message.tool_calls.length > 0) {
         for (const toolCall of message.tool_calls) {
@@ -358,7 +355,6 @@ Important:
       iteration++;
     }
 
-    // If we hit max iterations, return a message
     throw new Error('Agent exceeded maximum iterations');
   } catch (error) {
     console.error('Error in code generation:', error);

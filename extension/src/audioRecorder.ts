@@ -136,6 +136,12 @@ export class AudioRecorder {
                     console.log(message);
                     if (message.type === 'transcription' && this.transcriptionCallback) {
                         this.transcriptionCallback(message.transcript, message.isFinal);
+                    } else if (message.type === 'code_generation_result') {
+                        console.log('\n=== Code Generation Result from Server ===');
+                        console.log(JSON.stringify(message.result, null, 2));
+                    } else if (message.type === 'code_generation_error') {
+                        console.error('\n=== Code Generation Error ===');
+                        console.error(message.error);
                     }
                 } catch (e) {
                     // Binary data or non-JSON, ignore
@@ -193,6 +199,12 @@ export class AudioRecorder {
                     const message = JSON.parse(data.toString());
                     if (message.type === 'transcription' && this.transcriptionCallback) {
                         this.transcriptionCallback(message.transcript, message.isFinal);
+                    } else if (message.type === 'code_generation_result') {
+                        console.log('\n=== Code Generation Result from Server ===');
+                        console.log(JSON.stringify(message.result, null, 2));
+                    } else if (message.type === 'code_generation_error') {
+                        console.error('\n=== Code Generation Error ===');
+                        console.error(message.error);
                     }
                 } catch (e) {
                     // Binary data or non-JSON, ignore
