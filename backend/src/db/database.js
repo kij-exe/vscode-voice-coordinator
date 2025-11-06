@@ -140,3 +140,33 @@ export async function getRecentTranscriptions(gitRepo, username, branch, minutes
     throw error;
   }
 }
+
+/**
+ * Get transcriptions from the last N minutes for a git repo and branch (all users)
+ * @param {string} gitRepo - Git repository URL or identifier
+ * @param {string} branch - Git branch name
+ * @param {number} minutesAgo - Number of minutes to look back (default: 60)
+ * @returns {Promise<Array>} Array of transcription records
+ */
+export async function getRecentTranscriptionsForBranch(gitRepo, branch, minutesAgo = 60) {
+  const pool = getPool();
+
+  const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+
+  const query = `
+    SELECT git_repo, username, branch, timestamp, transcription
+    FROM user_transcripts
+    WHERE git_repo = $1
+      AND branch = $2
+      AND timestamp > $3
+    ORDER BY timestamp ASC
+  `;
+
+  try {
+    const result = await pool.query(query, [gitRepo, branch, cutoffTime]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting recent transcriptions for branch:', error);
+    throw error;
+  }
+}

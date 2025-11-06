@@ -4,6 +4,8 @@ let isConnected = false;
 let isRecording = false;
 let connectionInfo = null;
 let httpUrl = '';
+let audioContext = null;
+let audioUnlocked = false;
 
 // Initialize URLs from window configuration
 function initializeUrls(backendUrl) {
@@ -89,6 +91,46 @@ async function generateCode() {
         return;
     }
 
+    // Unlock audio during user gesture (button click) using Web Audio API
+    if (!audioUnlocked) {
+        try {
+            // Create AudioContext during user gesture to unlock audio
+            if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+                const AudioContextClass = AudioContext || webkitAudioContext;
+                audioContext = new AudioContextClass();
+                
+                // Create a silent buffer and play it to unlock audio
+                const buffer = audioContext.createBuffer(1, 1, 22050);
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+                source.stop(0.001);
+                
+                audioUnlocked = true;
+                console.log('Audio unlocked using Web Audio API');
+            } else {
+                // Fallback: try HTML5 Audio
+                const unlockAudio = new Audio();
+                unlockAudio.volume = 0.01;
+                unlockAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+                const playPromise = unlockAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        unlockAudio.pause();
+                        unlockAudio.currentTime = 0;
+                        audioUnlocked = true;
+                        console.log('Audio unlocked using HTML5 Audio');
+                    }).catch(() => {
+                        console.warn('Could not unlock audio, will attempt playback anyway');
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('Error unlocking audio:', e);
+        }
+    }
+
     showStatus('codeGenStatus', '', '');
     const button = document.getElementById('generateCodeBtn');
     const loadingAnimation = document.getElementById('loadingAnimation');
@@ -111,6 +153,105 @@ async function generateCode() {
 function showStatus(elementId, message, type = '') {
     const element = document.getElementById(elementId);
     element.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+}
+
+// Play audio using Web Audio API (bypasses user gesture requirement if context was created during gesture)
+function playAudioWithWebAudio(base64Data, format) {
+    try {
+        console.log('Playing audio with Web Audio API');
+        
+        // Convert base64 to ArrayBuffer
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        // Decode audio data
+        audioContext.decodeAudioData(bytes.buffer).then(audioBuffer => {
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.start(0);
+            console.log('Audio playback started with Web Audio API');
+            
+            // Clean up when done
+            source.onended = () => {
+                console.log('Web Audio playback ended');
+            };
+        }).catch(error => {
+            console.warn('Error decoding audio with Web Audio API, falling back to HTML5:', error);
+            playAudioWithHTML5(base64Data, format);
+        });
+    } catch (error) {
+        console.warn('Error with Web Audio API, falling back to HTML5:', error);
+        playAudioWithHTML5(base64Data, format);
+    }
+}
+
+// Fallback: Play audio using HTML5 Audio
+function playAudioWithHTML5(base64Data, format) {
+    try {
+        console.log('Playing audio with HTML5 Audio');
+        
+        // Convert base64 to blob
+        const mimeType = format === 'mp3' ? 'audio/mpeg' : `audio/${format}`;
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Create audio element
+        const audio = new Audio();
+        let played = false;
+        
+        const playAudioFunc = () => {
+            if (!played) {
+                played = true;
+                console.log('Attempting to play audio with HTML5...');
+                audio.volume = 1.0;
+                
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('HTML5 Audio playback started successfully');
+                    }).catch(error => {
+                        if (error.name !== 'NotAllowedError') {
+                            console.warn('Error playing HTML5 audio:', error);
+                        } else {
+                            console.log('HTML5 Audio playback blocked - user gesture required');
+                        }
+                        URL.revokeObjectURL(blobUrl);
+                    });
+                }
+            }
+        };
+        
+        audio.addEventListener('loadeddata', playAudioFunc);
+        audio.addEventListener('canplay', playAudioFunc);
+        audio.addEventListener('canplaythrough', playAudioFunc);
+        audio.addEventListener('ended', () => {
+            console.log('HTML5 Audio playback ended');
+            URL.revokeObjectURL(blobUrl);
+        });
+        audio.addEventListener('error', (e) => {
+            console.warn('HTML5 Audio element error:', audio.error);
+            URL.revokeObjectURL(blobUrl);
+        });
+        
+        audio.src = blobUrl;
+        
+        setTimeout(() => {
+            if (!played) {
+                playAudioFunc();
+            }
+        }, 500);
+    } catch (error) {
+        console.warn('Error with HTML5 Audio playback:', error);
+    }
 }
 
 function addTranscription(transcript, isFinal) {
@@ -173,6 +314,7 @@ window.addEventListener('message', event => {
             break;
         case 'codeGenStarted':
             showStatus('codeGenStatus', '', '');
+            window.lastCodeGenResult = null; // Clear previous result
             const loadingAnimation = document.getElementById('loadingAnimation');
             if (loadingAnimation) {
                 loadingAnimation.style.display = 'flex';
@@ -181,18 +323,69 @@ window.addEventListener('message', event => {
         case 'codeGenComplete':
             // Keep loading animation, wait for patchesSaved message
             break;
+        case 'code_generation_result':
+            // Store result for later use when patches are saved
+            if (message.result) {
+                window.lastCodeGenResult = message.result;
+            }
+            break;
         case 'patchesSaved':
             const loadingAnimationSaved = document.getElementById('loadingAnimation');
             if (loadingAnimationSaved) {
                 loadingAnimationSaved.style.display = 'none';
             }
+            // Get the result summary if available (stored from code_generation_result)
+            const resultSummary = window.lastCodeGenResult?.summary || '';
+            const isError = resultSummary.toLowerCase().includes('error') || resultSummary.toLowerCase().includes('failed');
+            
             if (message.count > 0) {
                 showStatus('codeGenStatus', `Code generation complete. ${message.count} patch file(s) saved to patches/ directory.`, 'connected');
+            } else if (isError) {
+                // Show error summary
+                showStatus('codeGenStatus', resultSummary || 'Code generation failed.', 'error');
             } else {
-                showStatus('codeGenStatus', 'Code generation complete, but no patches were saved.', 'connected');
+                showStatus('codeGenStatus', resultSummary || 'Code generation complete, but no patches were saved.', 'connected');
             }
             if (document.getElementById('generateCodeBtn')) {
                 document.getElementById('generateCodeBtn').disabled = false;
+            }
+            break;
+        case 'playAudio':
+            // Play audio when received
+            try {
+                if (!message.audioData) {
+                    console.warn('No audio data received');
+                    break;
+                }
+                
+                console.log('Received audio data, length:', message.audioData.length);
+                
+                // Ensure AudioContext is available and resumed
+                if (!audioContext) {
+                    const AudioContextClass = AudioContext || webkitAudioContext;
+                    if (AudioContextClass) {
+                        audioContext = new AudioContextClass();
+                    }
+                }
+                
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        console.log('AudioContext resumed');
+                        playAudioWithWebAudio(message.audioData, message.format);
+                    }).catch(err => {
+                        console.warn('Could not resume AudioContext, trying HTML5 Audio:', err);
+                        playAudioWithHTML5(message.audioData, message.format);
+                    });
+                } else if (audioContext) {
+                    // AudioContext is ready, use Web Audio API
+                    playAudioWithWebAudio(message.audioData, message.format);
+                } else {
+                    // Fallback to HTML5 Audio
+                    playAudioWithHTML5(message.audioData, message.format);
+                }
+            } catch (error) {
+                // Silently handle errors - don't break functionality
+                console.warn('Error setting up audio playback:', error);
             }
             break;
         case 'codeGenError':

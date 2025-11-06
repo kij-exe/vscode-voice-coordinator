@@ -9,6 +9,7 @@ export class AudioRecorder {
     private connectionInfo: any = null;
     private transcriptionCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
     private codeGenerationCallback: ((result: any) => void) | null = null;
+    private audioPlaybackCallback: ((audioData: string, format: string) => void) | null = null;
 
     constructor() {}
 
@@ -143,6 +144,10 @@ export class AudioRecorder {
                         if (this.codeGenerationCallback) {
                             this.codeGenerationCallback(message.result);
                         }
+                        // Handle audio if present
+                        if (message.audio && this.audioPlaybackCallback) {
+                            this.audioPlaybackCallback(message.audio, message.audioFormat || 'mp3');
+                        }
                     } else if (message.type === 'code_generation_error') {
                         console.error('\n=== Code Generation Error ===');
                         console.error(message.error);
@@ -200,6 +205,10 @@ export class AudioRecorder {
 
     setCodeGenerationCallback(callback: (result: any) => void): void {
         this.codeGenerationCallback = callback;
+    }
+
+    setAudioPlaybackCallback(callback: (audioData: string, format: string) => void): void {
+        this.audioPlaybackCallback = callback;
     }
 }
 

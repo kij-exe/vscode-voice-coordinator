@@ -1,6 +1,7 @@
 import { createRecognitionStream, isSpeechClientAvailable } from '../speech/speechHandler.js';
+import { synthesizeSpeech, isTextToSpeechAvailable } from '../speech/textToSpeech.js';
 import { generateCodeFromConversation } from '../agent/codeAgent.js';
-import { getRecentTranscriptions } from '../db/database.js';
+import { getRecentTranscriptionsForBranch } from '../db/database.js';
 
 /**
  * Setup WebSocket server for audio streaming
@@ -149,44 +150,90 @@ export function setupWebSocket(wss) {
             break;
           }
 
-          // Get last 60 minutes of conversation
+          // Get last 60 minutes of conversation for entire branch (all users)
           try {
-            const conversations = await getRecentTranscriptions(
+            const conversations = await getRecentTranscriptionsForBranch(
               repoId,
-              userName,
               branch,
               60
             );
 
             if (conversations.length === 0) {
               console.log('No conversations found in the last 60 minutes');
+              // Send response with empty result
+              ws.send(JSON.stringify({
+                type: 'code_generation_result',
+                result: {
+                  summary: 'No conversations found in the last 60 minutes. Please have some conversations first.',
+                  files: []
+                }
+              }));
               break;
             }
 
-            console.log(`Found ${conversations.length} conversation messages`);
+            console.log(`Found ${conversations.length} conversation messages from all users`);
 
             // Generate code using the agent
-            const result = await generateCodeFromConversation(
-              repoId,
-              branch,
-              conversations
-            );
+            let result;
+            try {
+              result = await generateCodeFromConversation(
+                repoId,
+                branch,
+                conversations
+              );
 
-            // Output to console
-            console.log('\n=== Code Generation Result ===');
-            console.log(JSON.stringify(result, null, 2));
+              // Output to console
+              console.log('\n=== Code Generation Result ===');
+              console.log(JSON.stringify(result, null, 2));
+            } catch (error) {
+              console.error('Error generating code:', error);
+              // Return error as summary instead of failing
+              result = {
+                summary: `Error during code generation: ${error.message}`,
+                files: []
+              };
+            }
+
+            // Generate audio from summary if text-to-speech is available
+            let audioBuffer = null;
+            if (isTextToSpeechAvailable() && result.summary) {
+              try {
+                // Create a short summary message for speech
+                const summaryText = result.summary.length > 500 
+                  ? result.summary.substring(0, 500) + '...' 
+                  : result.summary;
+                const speechText = `Code generation complete. ${summaryText}`;
+                
+                audioBuffer = await synthesizeSpeech(speechText);
+                console.log(`Generated audio from summary (${audioBuffer.length} bytes)`);
+              } catch (error) {
+                console.warn('Failed to generate speech from summary, continuing without audio:', error.message);
+                // Continue normally even if speech generation fails
+              }
+            }
 
             // Send result to client via websocket
-            ws.send(JSON.stringify({
+            const message = {
               type: 'code_generation_result',
               result: result
-            }));
+            };
+
+            // If audio was generated, send it as base64
+            if (audioBuffer) {
+              message.audio = audioBuffer.toString('base64');
+              message.audioFormat = 'mp3';
+            }
+
+            ws.send(JSON.stringify(message));
           } catch (error) {
-            console.error('Error generating code:', error);
-            // Send error to client
+            console.error('Error in code generation process:', error);
+            // Send error response with error as summary
             ws.send(JSON.stringify({
-              type: 'code_generation_error',
-              error: error.message
+              type: 'code_generation_result',
+              result: {
+                summary: `Error: ${error.message}`,
+                files: []
+              }
             }));
           }
           break;

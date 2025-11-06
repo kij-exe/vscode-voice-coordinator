@@ -11,6 +11,7 @@ export class CoordinatorPanel {
     private wsUrl: string;
     private audioRecorder: AudioRecorder;
     private connectionInfo: any = null;
+    private pendingAudio: { data: string; format: string } | null = null;
 
     constructor(private readonly _extensionUri: vscode.Uri, backendUrl: string) {
         this.backendUrl = backendUrl;
@@ -43,7 +44,25 @@ export class CoordinatorPanel {
 
         // Set up code generation callback
         this.audioRecorder.setCodeGenerationCallback(async (result: any) => {
+            // Send result to webview so it can store it
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'code_generation_result',
+                    result: result
+                });
+            }
             await this.savePatches(result);
+            // Play audio after patches are saved
+            if (this.pendingAudio) {
+                this.playAudio(this.pendingAudio.data, this.pendingAudio.format);
+                this.pendingAudio = null;
+            }
+        });
+
+        // Set up audio playback callback
+        this.audioRecorder.setAudioPlaybackCallback((audioData: string, format: string) => {
+            // Store audio to play after patches are saved
+            this.pendingAudio = { data: audioData, format: format };
         });
     }
 
@@ -163,12 +182,38 @@ export class CoordinatorPanel {
     }
 
     /**
+     * Play audio from base64 data
+     */
+    private playAudio(base64Data: string, format: string = 'mp3') {
+        try {
+            // Send base64 data to webview - it will create blob URL there
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'playAudio',
+                    audioData: base64Data,
+                    format: format
+                });
+            }
+        } catch (error: any) {
+            console.error('Error sending audio to webview:', error);
+            // Don't show error to user, just log it
+        }
+    }
+
+    /**
      * Save patches to the workspace patches directory
      */
     private async savePatches(result: any) {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open. Please open a workspace first.');
+            // Still notify webview
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'patchesSaved',
+                    count: 0
+                });
+            }
             return;
         }
 
@@ -211,8 +256,7 @@ export class CoordinatorPanel {
                     });
                 }
             } else {
-                vscode.window.showWarningMessage('No patch files to save');
-                // Notify webview that no patches were saved
+                // Even if no patches, notify webview (might be an error response)
                 if (this._panel) {
                     this._panel.webview.postMessage({
                         type: 'patchesSaved',
@@ -228,8 +272,8 @@ export class CoordinatorPanel {
             // Notify webview of error
             if (this._panel) {
                 this._panel.webview.postMessage({
-                    type: 'codeGenError',
-                    message: errorMessage
+                    type: 'patchesSaved',
+                    count: 0
                 });
             }
         }
