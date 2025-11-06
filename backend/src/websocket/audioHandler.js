@@ -1,4 +1,6 @@
 import { createRecognitionStream, isSpeechClientAvailable } from '../speech/speechHandler.js';
+import { generateCodeFromConversation } from '../agent/codeAgent.js';
+import { getRecentTranscriptions } from '../db/database.js';
 
 /**
  * Setup WebSocket server for audio streaming
@@ -132,6 +134,51 @@ export function setupWebSocket(wss) {
 
         case 'ping':
           ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+
+        case 'generate_code':
+          // Use connectionInfo from message if available, otherwise use stored connectionInfo
+          const repoId = message.repoId || connectionInfo?.repoId;
+          const userName = message.userName || connectionInfo?.userName;
+          const branch = message.branch || connectionInfo?.branch;
+          
+          console.log(`Generating code for repo: ${repoId}, branch: ${branch}`);
+          
+          if (!repoId || !userName || !branch) {
+            console.error('Missing connection info for code generation');
+            break;
+          }
+
+          // Get last 60 minutes of conversation
+          try {
+            const conversations = await getRecentTranscriptions(
+              repoId,
+              userName,
+              branch,
+              60
+            );
+
+            if (conversations.length === 0) {
+              console.log('No conversations found in the last 60 minutes');
+              break;
+            }
+
+            console.log(`Found ${conversations.length} conversation messages`);
+
+            // Generate code using the agent
+            const result = await generateCodeFromConversation(
+              repoId,
+              branch,
+              conversations
+            );
+
+            // Output to console (not sending back to client)
+            console.log('\n=== Code Generation Result ===');
+            console.log(JSON.stringify(result, null, 2));
+          } catch (error) {
+            console.error('Error generating code:', error);
+            // Don't send error to client, just log it
+          }
           break;
 
         default:
