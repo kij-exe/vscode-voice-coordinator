@@ -38,7 +38,7 @@
       "properties": {
         "hiyaCoordinator.backendUrl": {
           "type": "string",
-          "default": "http://localhost:3000",
+          "default": "http://31.97.117.123:3000",
           "description": "Backend server URL"
         }
       }
