@@ -1,5 +1,20 @@
 import mic = require('mic');
 import WebSocket = require('ws');
+import { handleWebSocketMessage, MessageCallbacks } from './websocket/messageHandler';
+
+const MIC_CONFIG = {
+    rate: '16000',
+    channels: '1',
+    debug: true,
+    exitOnSilence: 0,
+    device: 'default'
+} as const;
+
+const AUDIO_CONFIG = {
+    encoding: 'LINEAR16',
+    sampleRate: 16000,
+    languageCode: 'en-US'
+} as const;
 
 export class AudioRecorder {
     private micInstance: mic.Microphone | null = null;
@@ -7,9 +22,7 @@ export class AudioRecorder {
     private ws: WebSocket | null = null;
     private isRecording: boolean = false;
     private connectionInfo: any = null;
-    private transcriptionCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
-    private codeGenerationCallback: ((result: any) => void) | null = null;
-    private audioPlaybackCallback: ((audioData: string, format: string) => void) | null = null;
+    private callbacks: MessageCallbacks = {};
 
     constructor() {}
 
@@ -20,51 +33,52 @@ export class AudioRecorder {
 
         this.connectionInfo = connectionInfo;
 
-        // Connect WebSocket if not already connected
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             await this.connectWebSocket(wsUrl);
         }
 
-        // Configure microphone
-        const micInstance = mic({
-            rate: '16000',
-            channels: '1',
-            debug: true,
-            exitOnSilence: 0,
-            device: 'default'
-        });
+        this.setupMicrophone();
+        this.sendStartCommand(connectionInfo);
+        this.setupAudioStream();
+        
+        this.micInstance!.start();
+        this.isRecording = true;
+    }
 
+    private setupMicrophone(): void {
+        const micInstance = mic(MIC_CONFIG);
         this.micInstance = micInstance;
         this.micInputStream = micInstance.getAudioStream();
+    }
 
-        // Send start command to backend
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
+    private sendStartCommand(connectionInfo: any): void {
+        if (this.isWebSocketReady()) {
+            this.ws!.send(JSON.stringify({
                 type: 'start',
                 repoId: connectionInfo.repoId,
                 userName: connectionInfo.userName,
                 branch: connectionInfo.branch,
-                encoding: 'LINEAR16',
-                sampleRate: 16000,
-                languageCode: 'en-US'
+                ...AUDIO_CONFIG
             }));
         }
+    }
 
-        // Stream audio data to WebSocket
-        if (this.micInputStream) {
-            this.micInputStream.on('data', (data: Buffer) => {
-                if (this.ws && this.ws.readyState === WebSocket.OPEN && data.length > 0) {
-                    this.ws.send(data);
-                }
-            });
+    private setupAudioStream(): void {
+        if (!this.micInputStream) return;
 
-            this.micInputStream.on('error', (err: Error) => {
-                console.error('Microphone stream error:', err);
-            });
-        }
+        this.micInputStream.on('data', (data: Buffer) => {
+            if (this.isWebSocketReady() && data.length > 0) {
+                this.ws!.send(data);
+            }
+        });
 
-        micInstance.start();
-        this.isRecording = true;
+        this.micInputStream.on('error', (err: Error) => {
+            console.error('Microphone stream error:', err);
+        });
+    }
+
+    private isWebSocketReady(): boolean {
+        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
     }
 
     stopRecording(): void {
@@ -72,6 +86,12 @@ export class AudioRecorder {
             return;
         }
 
+        this.stopMicrophone();
+        this.sendStopCommand();
+        this.isRecording = false;
+    }
+
+    private stopMicrophone(): void {
         if (this.micInstance) {
             this.micInstance.stop();
             this.micInstance = null;
@@ -81,12 +101,12 @@ export class AudioRecorder {
             this.micInputStream.removeAllListeners();
             this.micInputStream = null;
         }
+    }
 
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'stop' }));
+    private sendStopCommand(): void {
+        if (this.isWebSocketReady()) {
+            this.ws!.send(JSON.stringify({ type: 'stop' }));
         }
-
-        this.isRecording = false;
     }
 
     private disconnectCallback: (() => void) | null = null;
@@ -97,65 +117,49 @@ export class AudioRecorder {
 
     private connectWebSocket(wsUrl: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            // Close existing connection if any
-            if (this.ws) {
-                this.ws.removeAllListeners();
-                if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-                    this.ws.close();
-                }
-                this.ws = null;
-            }
+            this.closeExistingConnection();
 
             this.ws = new WebSocket(wsUrl);
+            this.setupWebSocketHandlers(resolve, reject);
+        });
+    }
 
-            this.ws.on('open', () => {
-                console.log('Audio recorder WebSocket connected');
-                resolve();
-            });
+    private closeExistingConnection(): void {
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                this.ws.close();
+            }
+            this.ws = null;
+        }
+    }
 
-            this.ws.on('error', (error: Error) => {
-                console.error('Audio recorder WebSocket error:', error);
-                reject(error);
-            });
+    private setupWebSocketHandlers(resolve: () => void, reject: (error: Error) => void): void {
+        if (!this.ws) return;
 
-            this.ws.on('close', () => {
-                console.log('Audio recorder WebSocket disconnected');
-                // If recording, stop it
-                if (this.isRecording) {
-                    this.stopRecording();
-                }
-                // Notify about disconnection
-                if (this.disconnectCallback) {
-                    this.disconnectCallback();
-                }
-                this.ws = null;
-            });
+        this.ws.on('open', () => {
+            console.log('Audio recorder WebSocket connected');
+            resolve();
+        });
 
-            this.ws.on('message', (data: WebSocket.Data) => {
-                // Handle backend messages (transcriptions, etc.)
-                try {
-                    const message = JSON.parse(data.toString());
-                    console.log(message);
-                    if (message.type === 'transcription' && this.transcriptionCallback) {
-                        this.transcriptionCallback(message.transcript, message.isFinal);
-                    } else if (message.type === 'code_generation_result') {
-                        console.log('\n=== Code Generation Result from Server ===');
-                        console.log(JSON.stringify(message.result, null, 2));
-                        if (this.codeGenerationCallback) {
-                            this.codeGenerationCallback(message.result);
-                        }
-                        // Handle audio if present
-                        if (message.audio && this.audioPlaybackCallback) {
-                            this.audioPlaybackCallback(message.audio, message.audioFormat || 'mp3');
-                        }
-                    } else if (message.type === 'code_generation_error') {
-                        console.error('\n=== Code Generation Error ===');
-                        console.error(message.error);
-                    }
-                } catch (e) {
-                    // Binary data or non-JSON, ignore
-                }
-            });
+        this.ws.on('error', (error: Error) => {
+            console.error('Audio recorder WebSocket error:', error);
+            reject(error);
+        });
+
+        this.ws.on('close', () => {
+            console.log('Audio recorder WebSocket disconnected');
+            if (this.isRecording) {
+                this.stopRecording();
+            }
+            if (this.disconnectCallback) {
+                this.disconnectCallback();
+            }
+            this.ws = null;
+        });
+
+        this.ws.on('message', (data: WebSocket.Data) => {
+            handleWebSocketMessage(data, this.callbacks);
         });
     }
 
@@ -200,15 +204,15 @@ export class AudioRecorder {
     }
 
     setTranscriptionCallback(callback: (transcript: string, isFinal: boolean) => void): void {
-        this.transcriptionCallback = callback;
+        this.callbacks.transcription = callback;
     }
 
     setCodeGenerationCallback(callback: (result: any) => void): void {
-        this.codeGenerationCallback = callback;
+        this.callbacks.codeGeneration = callback;
     }
 
     setAudioPlaybackCallback(callback: (audioData: string, format: string) => void): void {
-        this.audioPlaybackCallback = callback;
+        this.callbacks.audioPlayback = callback;
     }
 }
 
