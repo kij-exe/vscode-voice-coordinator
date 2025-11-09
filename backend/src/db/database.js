@@ -16,8 +16,7 @@ export async function connectDatabase(connectionString) {
 
   try {
     pool = new Pool({
-      connectionString: connectionString,
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+      connectionString,
     });
 
     // Test the connection
@@ -51,7 +50,6 @@ export function getPool() {
  * @returns {Promise<Object>} The inserted record
  */
 export async function putTranscription(gitRepo, username, branch, transcription, timestamp = null) {
-  console.log(`[putTranscription] repo: ${gitRepo}, user: ${username}, branch: ${branch}, ts: ${timestamp || "start of time"}`);
   const pool = getPool();
   const ts = timestamp || new Date().toISOString();
 
@@ -63,7 +61,7 @@ export async function putTranscription(gitRepo, username, branch, transcription,
 
   try {
     const result = await pool.query(query, [gitRepo, username, branch, ts, transcription]);
-    console.log(`Saved transcription: ${transcription.substring(0, 50)}...`);
+    console.log(`[putTranscription] Saved: ${transcription.substring(0, 50)}...`);
     return result.rows[0];
   } catch (error) {
     console.error('Error saving transcription:', error);
@@ -74,30 +72,26 @@ export async function putTranscription(gitRepo, username, branch, transcription,
 /**
  * Get all transcriptions for a git repo, username, and branch after a certain timestamp
  * @param {string} gitRepo - Git repository URL or identifier
- * @param {string} username - Username (optional)
- * @param {string} branch - Git branch name (optional)
- * @param {string} afterTimestamp - ISO timestamp string (optional, defaults to beginning of time)
+ * @param {string} username - Username
+ * @param {string} branch - Git branch name
+ * @param {string} afterTimestamp - ISO timestamp string (optional)
  * @returns {Promise<Array>} Array of transcription records
  */
 export async function getTranscriptions(gitRepo, username, branch, afterTimestamp = null) {
   const pool = getPool();
-
+  const params = [gitRepo, username, branch];
+  
   let query = `
     SELECT git_repo, username, branch, timestamp, transcription
     FROM user_transcripts
-    WHERE git_repo = $1
+    WHERE git_repo = $1 AND username = $2 AND branch = $3
   `;
-  const params = [gitRepo];
-
-  query += ` AND username = $2`;
-  params.push(username);
-
-  query += ` AND branch = $3`;
-  params.push(branch);
-    
-  if (afterTimestamp) query += ` AND timestamp > $4`;
-  params.push(afterTimestamp);
-
+  
+  if (afterTimestamp) {
+    params.push(afterTimestamp);
+    query += ` AND timestamp > $4`;
+  }
+  
   query += ` ORDER BY timestamp ASC`;
 
   try {
@@ -118,27 +112,8 @@ export async function getTranscriptions(gitRepo, username, branch, afterTimestam
  * @returns {Promise<Array>} Array of transcription records
  */
 export async function getRecentTranscriptions(gitRepo, username, branch, minutesAgo = 60) {
-  const pool = getPool();
-
   const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
-
-  const query = `
-    SELECT git_repo, username, branch, timestamp, transcription
-    FROM user_transcripts
-    WHERE git_repo = $1
-      AND username = $2
-      AND branch = $3
-      AND timestamp > $4
-    ORDER BY timestamp ASC
-  `;
-
-  try {
-    const result = await pool.query(query, [gitRepo, username, branch, cutoffTime]);
-    return result.rows;
-  } catch (error) {
-    console.error('Error getting recent transcriptions:', error);
-    throw error;
-  }
+  return getTranscriptions(gitRepo, username, branch, cutoffTime);
 }
 
 /**
@@ -150,15 +125,12 @@ export async function getRecentTranscriptions(gitRepo, username, branch, minutes
  */
 export async function getRecentTranscriptionsForBranch(gitRepo, branch, minutesAgo = 60) {
   const pool = getPool();
-
   const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
 
   const query = `
     SELECT git_repo, username, branch, timestamp, transcription
     FROM user_transcripts
-    WHERE git_repo = $1
-      AND branch = $2
-      AND timestamp > $3
+    WHERE git_repo = $1 AND branch = $2 AND timestamp > $3
     ORDER BY timestamp ASC
   `;
 

@@ -24,7 +24,7 @@ export async function connectUser(req, res) {
       });
     }
 
-    // Use repoUrl as repoId (could be normalized in the future)
+    // Use repoUrl as repoId
     const repoId = repoUrl;
     const branchName = branch || 'main';
 

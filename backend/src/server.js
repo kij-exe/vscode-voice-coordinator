@@ -4,57 +4,96 @@ import { createServer } from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { registerRepo, connectUser } from './routes/repos.js';
-import { setupWebSocket } from './websocket/audioHandler.js';
+import { setupWebSocket } from './websocket/connectionManager.js';
 import { connectDatabase } from './db/database.js';
 
 dotenv.config();
 
-const app = express();
-const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+/**
+ * Build database connection string from environment variables
+ * @returns {string} Database connection string
+ */
+function buildDatabaseConnectionString() {
+  const { POSTGRES_USER, POSTGRES_PASSWORD, DB_HOST, DB_PORT, POSTGRES_DB } = process.env;
+  return `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST}:${DB_PORT}/${POSTGRES_DB}`;
+}
 
-// REST API Routes
-app.post('/api/repos/register', registerRepo);
-app.post('/api/repos/connect', connectUser);
+/**
+ * Setup Express middleware
+ * @param {express.Application} app - Express application
+ */
+function setupMiddleware(app) {
+  app.use(cors());
+  app.use(express.json());
+}
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+/**
+ * Setup REST API routes
+ * @param {express.Application} app - Express application
+ */
+function setupRoutes(app) {
+  app.post('/api/repos/register', registerRepo);
+  app.post('/api/repos/connect', connectUser);
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+}
 
-// WebSocket server for audio streaming
-console.log('Creating WebSocket server...');
-const wss = new WebSocketServer({ server });
-setupWebSocket(wss);
+/**
+ * Setup WebSocket server
+ * @param {Object} server - HTTP server instance
+ * @returns {WebSocketServer} WebSocket server instance
+ */
+function setupWebSocketServer(server) {
+  console.log('Creating WebSocket server...');
+  const wss = new WebSocketServer({ server });
+  setupWebSocket(wss);
 
-wss.on('error', (error) => {
-  console.error('WebSocket server error:', error);
-});
+  wss.on('error', (error) => {
+    console.error('WebSocket server error:', error);
+  });
 
-wss.on('listening', () => {
-  console.log('WebSocket server is listening for connections');
-});
+  wss.on('listening', () => {
+    console.log('WebSocket server is listening for connections');
+  });
 
-// Connect to database and start server
-const dbConnectionString = `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.POSTGRES_DB}`;
+  return wss;
+}
 
-// Initialize database connection and start server
-(async () => {
+/**
+ * Start the server
+ * @returns {Promise<void>}
+ */
+async function startServer() {
   try {
+    // Connect to database
+    const dbConnectionString = buildDatabaseConnectionString();
     await connectDatabase(dbConnectionString);
+
+    // Setup Express app
+    const app = express();
+    setupMiddleware(app);
+    setupRoutes(app);
+
+    // Create HTTP server
+    const server = createServer(app);
+
+    // Setup WebSocket server
+    setupWebSocketServer(server);
 
     // Start server
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      console.log(`WebSocket server ready for connections`);
+      console.log('WebSocket server ready for connections');
     });
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
-})();
+}
+
+// Start the server
+startServer();
 
